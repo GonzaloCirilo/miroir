@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.safeContentPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -24,6 +26,7 @@ import miroir.composeapp.generated.resources.compose_multiplatform
 fun App() {
     MaterialTheme {
         var showContent by remember { mutableStateOf(false) }
+        val devices by DeviceManagerImpl().getAvailableDevices().collectAsState(emptyList())
         Column(
             modifier = Modifier
                 .background(MaterialTheme.colorScheme.primaryContainer)
@@ -31,8 +34,13 @@ fun App() {
                 .fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            LazyColumn {
+                items(devices) { device ->
+                    Text("${device.manufacturer} ${device.model}" )
+                }
+            }
             Button(onClick = { showContent = !showContent }) {
-                Text("Click me!")
+                Text("Press me!")
             }
             AnimatedVisibility(showContent) {
                 val greeting = remember { Greeting().greet() }
