@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.safeContentPadding
@@ -15,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
@@ -35,9 +37,18 @@ fun App() {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             LazyColumn {
-                items(devices) { device ->
-                    Text("${device.manufacturer} ${device.model}" )
+                if (devices.isNotEmpty()){
+                    items(devices) { device ->
+                        Row(modifier = Modifier.background(Color.Green)) {
+                            Text("${device.manufacturer} ${device.model}" )
+                        }
+                    }
+                } else {
+                    item {
+                        Text("No Devices")
+                    }
                 }
+
             }
             Button(onClick = { showContent = !showContent }) {
                 Text("Press me!")
