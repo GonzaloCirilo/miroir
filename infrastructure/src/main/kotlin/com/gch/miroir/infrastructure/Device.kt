@@ -1,4 +1,4 @@
-package com.gch.miroir
+package com.gch.miroir.infrastructure
 
 data class Device(
     val serialNumber: String,

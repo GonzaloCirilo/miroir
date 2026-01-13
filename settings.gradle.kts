@@ -33,4 +33,6 @@ plugins {
 }
 
 include(":composeApp")
-include("shared")
+include(":native")
+
+include("infrastructure")

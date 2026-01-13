@@ -10,13 +10,13 @@ repositories {
 }
 
 dependencies {
-    testImplementation(kotlin("test"))
     implementation(libs.kotlinx.coroutinesCore)
+    testImplementation(kotlin("test"))
 }
 
 tasks.test {
     useJUnitPlatform()
 }
 kotlin {
-    jvmToolchain(18)
+    jvmToolchain(21)
 }

@@ -1,4 +1,4 @@
-package com.gch.miroir
+package com.gch.miroir.infrastructure
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
