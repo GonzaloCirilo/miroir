@@ -16,18 +16,23 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.gch.miroir.infrastructure.Device
+import kotlinx.collections.immutable.ImmutableList
 import org.jetbrains.compose.resources.painterResource
-import org.jetbrains.compose.ui.tooling.preview.Preview
-
 import miroir.composeapp.generated.resources.Res
 import miroir.composeapp.generated.resources.compose_multiplatform
 
+sealed class Event {
+    data object OnRefresh : Event()
+}
+
 @Composable
-@Preview
-fun App() {
+fun App(
+    devices: ImmutableList<Device>,
+    onEvent: (Event) -> Unit,
+) {
     MaterialTheme {
         var showContent by remember { mutableStateOf(false) }
-        val devices by DeviceManagerImpl().getAvailableDevices().collectAsState(emptyList())
         Column(
             modifier = Modifier
                 .background(MaterialTheme.colorScheme.primaryContainer)
@@ -37,9 +42,9 @@ fun App() {
         ) {
             LazyColumn {
                 if (devices.isNotEmpty()){
-                    items(devices) { device ->
+                    items(devices.size) { index ->
                         Row(modifier = Modifier.background(Color.Green)) {
-                            Text("${device.manufacturer} ${device.model}" )
+                            Text("${devices[index].manufacturer} ${devices[index].model}" )
                         }
                     }
                 } else {
@@ -51,6 +56,9 @@ fun App() {
             }
             Button(onClick = { showContent = !showContent }) {
                 Text("Press me!")
+            }
+            Button(onClick = { onEvent(Event.OnRefresh) }) {
+                Text("Refresh")
             }
             AnimatedVisibility(showContent) {
                 val greeting = remember { Greeting().greet() }

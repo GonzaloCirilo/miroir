@@ -10,6 +10,8 @@ plugins {
 kotlin {
     jvm()
 
+    jvmToolchain(21)
+
     sourceSets {
         commonMain.dependencies {
             implementation(project(":native"))
@@ -22,6 +24,9 @@ kotlin {
             implementation(compose.components.uiToolingPreview)
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
+            implementation(libs.kotlinx.collectionsImmutable)
+            implementation(libs.koin.compose)
+            implementation(libs.koin.core)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

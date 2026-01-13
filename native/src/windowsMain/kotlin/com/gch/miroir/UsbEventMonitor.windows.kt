@@ -1,18 +1,24 @@
 package com.gch.miroir
 
-import kotlinx.cinterop.CValuesRef
+import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.cinterop.MemScope
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.allocArray
 import kotlinx.cinterop.convert
-import kotlinx.cinterop.cstr
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.nativeHeap
+import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
+import kotlinx.cinterop.set
 import kotlinx.cinterop.sizeOf
 import kotlinx.cinterop.staticCFunction
+import kotlinx.coroutines.CoroutineScope
+import platform.posix.memcpy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -45,8 +51,6 @@ import platform.windows.WM_DESTROY
 import platform.windows.WM_DEVICECHANGE
 import platform.windows.WNDCLASSEXW
 import platform.windows.WPARAM
-import win32.DBT_DEVICEARRIVAL
-import win32.DBT_DEVICEREMOVECOMPLETE
 import win32.DBT_DEVTYP_DEVICEINTERFACE
 import win32.DEV_BROADCAST_DEVICEINTERFACE_W
 
@@ -57,29 +61,33 @@ actual class UsbEventMonitor() {
     private var _isMonitoring = false
     private val _usbEvents = MutableSharedFlow<UsbEvent>()
     private var monitoringJob: Job? = null
+    private val coroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     actual val usbEvents: SharedFlow<UsbEvent> = _usbEvents.asSharedFlow()
 
-    // USB Device Interface GUID
-    private val USB_DEVICE_GUID = nativeHeap.alloc<GUID>().apply {
+
+    // USB Device Interface GUID  {A5DCBF10-6530-11D2-901F-00C04FB951ED}
+    private val USB_DEVICE_GUID_PTR = nativeHeap.alloc<GUID>().apply {
         Data1 = 0xA5DCBF10u
         Data2 = 0x6530u
         Data3 = 0x11D2u
-        Data4[0] = 0x90u.toByte()
-        Data4[1] = 0x1Fu.toByte()
-        Data4[2] = 0x00u.toByte()
-        Data4[3] = 0xC0u.toByte()
-        Data4[4] = 0x4Fu.toByte()
-        Data4[5] = 0xB9u.toByte()
-        Data4[6] = 0x51u.toByte()
-        Data4[7] = 0xEDu.toByte()
-    }
+        Data4[0] = 0x90u.toUByte()
+        Data4[1] = 0x1Fu.toUByte()
+        Data4[2] = 0x00u.toUByte()
+        Data4[3] = 0xC0u.toUByte()
+        Data4[4] = 0x4Fu.toUByte()
+        Data4[5] = 0xB9u.toUByte()
+        Data4[6] = 0x51u.toUByte()
+        Data4[7] = 0xEDu.toUByte()
+    }.ptr
 
-    // Window procedure
+
+    // Window procedure - non-capturing static function
     private val windowProc = staticCFunction<HWND?, UINT, WPARAM, LPARAM, LRESULT> { hwnd, msg, wParam, lParam ->
         when (msg.toInt()) {
             WM_DEVICECHANGE -> {
-                handleDeviceChangeMessage(wParam, lParam)
+                // Handle device change events directly in callback
+                // TODO: emit events to flow when instance callback support is added
                 0L
             }
             WM_CLOSE -> {
@@ -94,59 +102,11 @@ actual class UsbEventMonitor() {
         }
     }
 
-    private fun handleDeviceChangeMessage(wParam: WPARAM, lParam: LPARAM) {
-        val eventType = wParam.convert<UInt>()
-
-        when (eventType.toInt()) {
-            DBT_DEVICEARRIVAL -> {
-                val devicePath = extractDevicePath(lParam)
-                if (devicePath.isNotEmpty()) {
-                    GlobalScope.launch {
-                        _usbEvents.emit(UsbEvent.onDeviceDiscovered)
-                    }
-                }
-            }
-            DBT_DEVICEREMOVECOMPLETE -> {
-                val devicePath = extractDevicePath(lParam)
-                if (devicePath.isNotEmpty()) {
-                    GlobalScope.launch {
-                        _usbEvents.emit(UsbEvent.onDeviceDisconnected)
-                    }
-                }
-            }
-        }
-    }
-
-    private fun extractDevicePath(lParam: LPARAM): String {
-        if (lParam == 0L) return ""
-
-        val header = lParam.reinterpret<DEV_BROADCAST_HDR>().pointed
-
-        return if (header.dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
-            try {
-                val namePtr = lParam.plus(sizeOf<DEV_BROADCAST_DEVICEINTERFACE_W>().toLong())
-                    .reinterpret<WCHARVar>()
-
-                buildString {
-                    var i = 0
-                    while (true) {
-                        val char = namePtr[i]
-                        if (char.toInt() == 0) break
-                        append(char.toInt().toChar())
-                        i++
-                    }
-                }
-            } catch (e: Exception) {
-                ""
-            }
-        } else {
-            ""
-        }
-    }
-
     private fun initializeWindow(): Boolean {
         val className = "UsbMonitorWindow"
+
         memScoped {
+            val classNameW = className.toWideString()
             val wc = alloc<WNDCLASSEXW>().apply {
                 cbSize = sizeOf<WNDCLASSEXW>().convert()
                 style = 0u
@@ -158,17 +118,18 @@ actual class UsbEventMonitor() {
                 hCursor = null
                 hbrBackground = null
                 lpszMenuName = null
-                lpszClassName = className.wcstr.ptr
+                lpszClassName = classNameW
                 hIconSm = null
             }
 
             RegisterClassExW(wc.ptr)
         }
 
+        val windowName = "USB Monitor"
         windowHandle = CreateWindowExW(
             dwExStyle = 0u,
-            lpClassName = className.wcstr.ptr,
-            lpWindowName = "USB Monitor".wcstr.ptr,
+            lpClassName = className,
+            lpWindowName = windowName,
             dwStyle = 0u,
             X = 0, Y = 0, nWidth = 0, nHeight = 0,
             hWndParent = HWND_MESSAGE,
@@ -181,27 +142,30 @@ actual class UsbEventMonitor() {
     }
 
     private fun registerForNotifications(): Boolean {
-        memScoped {
-            val dbi = alloc<DEV_BROADCAST_DEVICEINTERFACE_W>().apply {
-                dbcc_size = sizeOf<DEV_BROADCAST_DEVICEINTERFACE_W>().convert()
-                dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE
-                dbcc_reserved = 0u
-                dbcc_classguid = USB_DEVICE_GUID
-                dbcc_name = 0u.toUShort()
-            }
+        return memScoped {
+            val dbi = alloc<DEV_BROADCAST_DEVICEINTERFACE_W>()
+            dbi.dbcc_size = sizeOf<DEV_BROADCAST_DEVICEINTERFACE_W>().convert()
+            dbi.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE.toUInt()
+            dbi.dbcc_reserved = 0u
+            // Copy GUID using memcpy
+            memcpy(
+                dbi.dbcc_classguid.ptr,
+                USB_DEVICE_GUID_PTR,
+                sizeOf<GUID>().convert()
+            )
 
             notificationHandle = RegisterDeviceNotificationW(
-                hRecipient = windowHandle,
-                NotificationFilter = dbi.ptr,
+                hRecipient = windowHandle?.reinterpret(),
+                NotificationFilter = dbi.ptr.reinterpret(),
                 Flags = DEVICE_NOTIFY_WINDOW_HANDLE.toUInt()
             )
 
-            return notificationHandle != null
+            notificationHandle != null
         }
     }
 
     private fun startMessageLoop() {
-        monitoringJob = GlobalScope.launch(Dispatchers.Default) {
+        monitoringJob = coroutineScope.launch(Dispatchers.Default) {
             memScoped {
                 val msg = alloc<MSG>()
                 while (_isMonitoring && GetMessageW(msg.ptr, windowHandle, 0u, 0u) > 0) {
@@ -246,7 +210,7 @@ actual class UsbEventMonitor() {
         }
 
         windowHandle?.let { hwnd ->
-            PostMessageW(hwnd, WM_CLOSE.toUInt(), 0u, 0L)
+            PostMessageW(hwnd, WM_CLOSE.convert(), 0u, 0L)
             windowHandle = null
         }
 
@@ -254,9 +218,21 @@ actual class UsbEventMonitor() {
         monitoringJob = null
     }
 
+    actual fun dispose() {
+        nativeHeap.free(USB_DEVICE_GUID_PTR.rawValue)
+        coroutineScope.cancel()
+    }
+
 }
 
-// Extension for string conversion
+// Extension for string to wide string conversion
 @OptIn(ExperimentalForeignApi::class)
-val String.wcstr: CValuesRef<WCHARVar>
-    get() = this.encodeToByteArray().decodeToString().cstr.getPointer(MemScope()).reinterpret()
+private fun String.toWideString(): CPointer<WCHARVar> = memScoped {
+    val len = this@toWideString.length
+    val buffer = allocArray<WCHARVar>(len + 1)
+    for (i in 0 until len) {
+        buffer[i] = this@toWideString[i].code.toUShort()
+    }
+    buffer[len] = 0u
+    buffer
+}

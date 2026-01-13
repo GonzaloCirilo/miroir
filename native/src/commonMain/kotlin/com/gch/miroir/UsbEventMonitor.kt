@@ -15,5 +15,8 @@ expect class UsbEventMonitor {
 
     suspend fun stopMonitoring()
 
+    fun dispose()
+
     val usbEvents: SharedFlow<UsbEvent>
+
 }
